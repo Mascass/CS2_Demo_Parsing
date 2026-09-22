@@ -21,14 +21,16 @@ def batch_parsing():
         print(f"Parsing {match_name}...")
         parser = DemoParser(str(dem_path))
 
-        # for name, (event, props) in EVENTS.items():
-        #     df = parser.parse_event(event, player=props)
-        #     df.to_parquet(f"{output_dir}/{name}.parquet")
+        # Parse events
+        for name, (event, props) in EVENTS.items():
+            df = parser.parse_event(event, player=props)
+            df.to_parquet(f"{output_dir}/{name}.parquet")
 
         # Parse only ticks on death
         wanted_ticks = parser.parse_event("player_death")["tick"].tolist()
         ticks_df = parser.parse_ticks(TICK_PROPS,ticks=wanted_ticks)
         ticks_df.to_parquet(f"{output_dir}/ticks.parquet")
-        print("batch_parsing Done")
+    print("batch_parsing Done")
+
 
 batch_parsing()
