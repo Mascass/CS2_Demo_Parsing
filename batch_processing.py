@@ -31,10 +31,10 @@ def direction_to_enemy(pos_self, pos_enemy):
     else:
         return vec
 
-## Double Check later #
+## Double Check later ##
 # Angle between two vectors 0=facing, 180=behind
 def angle_between(v1, v2):
-    dot = np.clip(np.dot(v1, v2), -1.0, 1.0)  # clip pour éviter erreurs d'arrondi hors [-1,1]
+    dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
     # print(v1,v2)
     return np.degrees(np.arccos(dot))
 
@@ -70,8 +70,6 @@ def process_duel(demo_path):
             tick_data = ticks_df[ticks_df["tick"] == tick]
             attacker = tick_data[tick_data["player_name"] == attacker_name].iloc[0]
             victim = tick_data[tick_data["player_name"] == victim_name].iloc[0]
-            # print(attacker)
-            # print(victim)
         except IndexError:
             return False
         if attacker is None or victim is None:
@@ -80,6 +78,7 @@ def process_duel(demo_path):
 
     kills_df["is_duel"] = kills_df.apply(analyze_kill, axis=1)
     return kills_df
+
 
 def process_duels():
     demo_folder = PARSED_DIR.glob("*/")
@@ -93,15 +92,32 @@ def process_duels():
         except FileNotFoundError as e:
             print(f"Fichiers manquants pour {demo_path}: {e}")
 
-    combined_duels= pd.concat(all_duels, ignore_index=True)
-    print(combined_duels)
+    combined_duels = pd.concat(all_duels, ignore_index=True)
+    combined_duels_2 = combined_duels[combined_duels["is_duel"]]
     duels_won = (
-        combined_duels[combined_duels["is_duel"]]
+        combined_duels_2
         .groupby("attacker_name")
         .size()
         .sort_values(ascending=False)
     )
-    print(duels_won)
+    duels_lost = (
+        combined_duels_2
+        .groupby("user_name")
+        .size()
+        .sort_values(ascending=False)
+    )
+    ratio_df = pd.DataFrame({
+        "wins": duels_won,
+        "losses": duels_lost
+    })
+    ratio_df.fillna(1)
+    ratio_df["ratio"] = ratio_df["wins"] / ratio_df["losses"]
+    ratio_df = ratio_df.sort_values("ratio", ascending=False)
+    # Print ratio of won duels
+    print(ratio_df)
+
+
+
 
 ######################## Processing kills.parquet files ########################
 def process_kills():
@@ -148,8 +164,31 @@ def process_chat():
     else:
         print("No chat.parquet files found")
 
+# Utility function : get kills from one game
+def get_game_kills(parquet_path):
+    kills_df = pd.read_parquet(parquet_path)
+    return kills_df["attacker_name"].value_counts().reset_index(name="kills")
+
+# Make a function that returns a df with total player kills
+def get_total_kills():
+    if PARSED_DIR.glob("*/kills.parquet"):
+        total_kills_df = pd.DataFrame()
+        for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
+            kills_df = get_game_kills(parquet_path)
+            total_kills_df = pd.concat([total_kills_df, kills_df], ignore_index=True)
+
+        total_kills_df = (total_kills_df.groupby("attacker_name").
+                          sum().
+                          reset_index().
+                          sort_values("kills", ascending=False))
+        return total_kills_df
+    else:
+        return FileNotFoundError
 
 
-# process_kills()
+#process_kills()
 # process_chat()
-process_duels()
+# process_duels()
+
+df = get_total_kills()
+print(df)
