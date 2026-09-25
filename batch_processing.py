@@ -3,12 +3,13 @@ import polars as pl
 import pandas as pd
 import numpy as np
 import os
+import util.util_processing as util
 
 PARSED_DIR = Path("parsed/")
 
 ######################## Duels processing ########################
 
-# Transforms horizontal and vertical angles to a vector
+""" Transforms horizontal and vertical angles to a vector """
 def angle_to_vector(pitch, yaw):
     pitch_rad = np.radians(pitch)
     yaw_rad = np.radians(yaw)
@@ -18,11 +19,11 @@ def angle_to_vector(pitch, yaw):
     # /!\ Maybe need to add offset because 'z' might be at the feet of the player
     return np.array([x, y, z])
 
-# Distance between two players
+""" Distance between two players """
 def distance_to_enemy(pos_self, pos_enemy):
     return np.array(pos_enemy) - np.array(pos_self)
 
-# Direction from one player to another
+""" Direction from one player to another """
 def direction_to_enemy(pos_self, pos_enemy):
     vec = distance_to_enemy(pos_self, pos_enemy)
     # Normalize vector to get direction only
@@ -32,13 +33,13 @@ def direction_to_enemy(pos_self, pos_enemy):
         return vec
 
 ## Double Check later ##
-# Angle between two vectors 0=facing, 180=behind
+""" Angle between two vectors 0=facing, 180=behind """
 def angle_between(v1, v2):
     dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
     # print(v1,v2)
     return np.degrees(np.arccos(dot))
 
-# Is the current player looking at the enemy?
+""" Is the current player looking at the enemy? """
 def is_looking_at(pos_self, pitch, yaw, pos_enemy):
     vec_self = angle_to_vector(pitch, yaw)
     vec_to_enemy = direction_to_enemy(pos_self, pos_enemy)
@@ -47,7 +48,7 @@ def is_looking_at(pos_self, pitch, yaw, pos_enemy):
     # print(pos_self,pos_enemy)
     return angle < threshold
 
-# Are the two players in a duel?
+""" Are the two players in a duel? """
 def is_duel(attacker, victim):
     a_pos = (attacker["X"], attacker["Y"], attacker["Z"])
     v_pos = (victim["X"], victim["Y"], victim["Z"])
@@ -55,7 +56,7 @@ def is_duel(attacker, victim):
     b_sees_a = is_looking_at(v_pos, victim["pitch"], victim["yaw"], a_pos)
     return a_sees_b and b_sees_a
 
-
+""" Returns a df of amount of duels won per player """
 def process_duel(demo_path):
     ticks_df = pd.read_parquet(os.path.join(demo_path, "ticks.parquet"))
     kills_df = pd.read_parquet(os.path.join(demo_path, "kills.parquet"))
@@ -124,7 +125,7 @@ def process_kills():
     if PARSED_DIR.glob("*/kills.parquet"):
         for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
             print(parquet_path)
-            kills   = pl.read_parquet(parquet_path)
+            kills = pl.read_parquet(parquet_path)
             kd = (
                 kills
                 .group_by("attacker_name").agg(pl.len().alias("kills"))
@@ -164,17 +165,13 @@ def process_chat():
     else:
         print("No chat.parquet files found")
 
-# Utility function : get kills from one game
-def get_game_kills(parquet_path):
-    kills_df = pd.read_parquet(parquet_path)
-    return kills_df["attacker_name"].value_counts().reset_index(name="kills")
 
-# Make a function that returns a df with total player kills
+""" Returns a df with total player kills """
 def get_total_kills():
     if PARSED_DIR.glob("*/kills.parquet"):
         total_kills_df = pd.DataFrame()
         for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
-            kills_df = get_game_kills(parquet_path)
+            kills_df = util.get_game_kills(parquet_path)
             total_kills_df = pd.concat([total_kills_df, kills_df], ignore_index=True)
 
         total_kills_df = (total_kills_df.groupby("attacker_name").
@@ -187,8 +184,8 @@ def get_total_kills():
 
 
 #process_kills()
-# process_chat()
-# process_duels()
-
-df = get_total_kills()
-print(df)
+#process_chat()
+#process_duels()
+#
+#df = util.get_game_kd("parsed/spirit-vs-falcons-m3-dust2/kills.parquet")
+#print(df)
