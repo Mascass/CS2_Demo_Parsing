@@ -11,7 +11,7 @@ EVENTS = {
     "chat": ("chat_message", []),
 }
 TICK_PROPS = ["X", "Y", "Z", "pitch", "yaw", "health", "armor_value",
-              "team_name","player_name", "is_alive", "current_equip_value"]
+              "team_name", "is_alive", "current_equip_value"]
 
 def batch_parsing():
     for dem_path in DEMOS_DIR.glob("*.dem"):

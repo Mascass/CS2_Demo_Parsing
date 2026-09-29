@@ -7,6 +7,71 @@ import util.util_processing as util
 
 PARSED_DIR = Path("parsed/")
 
+
+
+######################## Processing kills.parquet files ########################
+def process_kills():
+    if PARSED_DIR.glob("*/kills.parquet"):
+        for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
+            print(parquet_path)
+            kills = pl.read_parquet(parquet_path)
+            kd = (
+                kills
+                .group_by("attacker_name").agg(pl.len().alias("kills"))
+                .join(
+                    kills.group_by("user_name").agg(pl.len().alias("deaths")),
+                    left_on="attacker_name", right_on="user_name", how="left"
+                )
+                .with_columns((pl.col("kills") / pl.col("deaths")).alias("kd"))
+                .sort("kd", descending=True)
+            )
+            print(kd)
+        else:
+            print("No kills.parquet files found")
+
+""" Returns a df with total player kills """
+def get_total_kills():
+    if PARSED_DIR.glob("*/kills.parquet"):
+        total_kills_df = pd.DataFrame()
+        for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
+            kills_df = util.get_game_kills(parquet_path)
+            total_kills_df = pd.concat([total_kills_df, kills_df], ignore_index=True)
+
+        total_kills_df = (total_kills_df.groupby("attacker_name").
+                          sum().
+                          reset_index().
+                          sort_values("kills", ascending=False))
+        return total_kills_df
+    else:
+        return FileNotFoundError
+
+######################## Processing chat.parquet files ########################
+def process_chat():
+    if PARSED_DIR.glob("*/chat.parquet"):
+        for parquet_path in PARSED_DIR.glob("*/chat.parquet"):
+            print(parquet_path)
+            chat = pl.read_parquet(parquet_path)
+            df_chat = pd.read_parquet(parquet_path)
+
+            chat_msgs = (
+                chat.group_by("user_name").agg(pl.len().alias("chat_message"))
+                .sort("chat_message",descending=True)
+            )
+
+            top_chatters = chat_msgs.head()["user_name"]
+            i=1
+            for chatter in top_chatters:
+                print("top ",i," chatter is : ", chatter)
+                chatter_chats = df_chat[df_chat["user_name"] == chatter][["chat_message","user_name"]]
+                print(chatter_chats)
+                i=i+1
+            with pd.option_context('display.max_rows', None, 'display.width', None):
+                print(df_chat[["user_name","chat_message"]])
+    else:
+        print("No chat.parquet files found")
+
+
+
 ######################## Duels processing ########################
 
 """ Transforms horizontal and vertical angles to a vector """
@@ -56,31 +121,47 @@ def is_duel(attacker, victim):
     b_sees_a = is_looking_at(v_pos, victim["pitch"], victim["yaw"], a_pos)
     return a_sees_b and b_sees_a
 
-""" Returns a df of amount of duels won per player """
+""" True if kills is a duel """
+def analyze_kill(kills_df,ticks_df):
+    ### Would be better to use steamid but have not parsed it yet
+
+    # attacker_ticks = ticks_df.rename(columns=lambda c: f"attacker_{c}")
+    # victim_ticks = ticks_df.rename(columns=lambda c: f"victim_{c}")
+    #
+    # merged = kills_df.merge(
+    #     attacker_ticks,
+    #     left_on=["tick", "attacker_name"],
+    #     right_on=["attacker_tick", "attacker_name"],
+    #     how="left"
+    # ).merge(
+    #     victim_ticks,
+    #     left_on=["tick", "user_name"],
+    #     right_on=["victim_tick", "victim_name"],
+    #     how="left"
+    # )
+    # return merged
+
+    tick = kills_df["tick"]
+    attacker_name = kills_df["attacker_name"]
+    victim_name = kills_df["user_name"]
+
+    try:
+        tick_data = ticks_df[ticks_df["tick"] == tick]
+        attacker = tick_data[tick_data["name"] == attacker_name].iloc[0]
+        victim = tick_data[tick_data["name"] == victim_name].iloc[0]
+    except IndexError:
+        return False
+    return is_duel(attacker,victim)
+
+""" Returns a df of amount of duels won per player for a demo """
 def process_duel(demo_path):
     ticks_df = pd.read_parquet(os.path.join(demo_path, "ticks.parquet"))
     kills_df = pd.read_parquet(os.path.join(demo_path, "kills.parquet"))
 
-    def analyze_kill(kill_event):
-        ## Would be better to use steamid but have not parsed it yet
-        tick = kill_event["tick"]
-        attacker_name = kill_event["attacker_name"]
-        victim_name = kill_event["user_name"]
-
-        try:
-            tick_data = ticks_df[ticks_df["tick"] == tick]
-            attacker = tick_data[tick_data["player_name"] == attacker_name].iloc[0]
-            victim = tick_data[tick_data["player_name"] == victim_name].iloc[0]
-        except IndexError:
-            return False
-        if attacker is None or victim is None:
-            return False
-        return is_duel(attacker, victim)
-
-    kills_df["is_duel"] = kills_df.apply(analyze_kill, axis=1)
+    kills_df["is_duel"] = kills_df.apply(analyze_kill,args=(ticks_df,), axis=1)
     return kills_df
 
-
+""" Returns a df of duels won / lost / ratio per player for a dataset of demos """
 def process_duels():
     demo_folder = PARSED_DIR.glob("*/")
     all_duels = []
@@ -94,15 +175,15 @@ def process_duels():
             print(f"Fichiers manquants pour {demo_path}: {e}")
 
     combined_duels = pd.concat(all_duels, ignore_index=True)
-    combined_duels_2 = combined_duels[combined_duels["is_duel"]]
+    combined_duels_true = combined_duels[combined_duels["is_duel"]]
     duels_won = (
-        combined_duels_2
+        combined_duels_true
         .groupby("attacker_name")
         .size()
         .sort_values(ascending=False)
     )
     duels_lost = (
-        combined_duels_2
+        combined_duels_true
         .groupby("user_name")
         .size()
         .sort_values(ascending=False)
@@ -118,70 +199,7 @@ def process_duels():
     print(ratio_df)
 
 
-
-
-######################## Processing kills.parquet files ########################
-def process_kills():
-    if PARSED_DIR.glob("*/kills.parquet"):
-        for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
-            print(parquet_path)
-            kills = pl.read_parquet(parquet_path)
-            kd = (
-                kills
-                .group_by("attacker_name").agg(pl.len().alias("kills"))
-                .join(
-                    kills.group_by("user_name").agg(pl.len().alias("deaths")),
-                    left_on="attacker_name", right_on="user_name", how="left"
-                )
-                .with_columns((pl.col("kills") / pl.col("deaths")).alias("kd"))
-                .sort("kd", descending=True)
-            )
-            print(kd)
-        else:
-            print("No kills.parquet files found")
-
-######################## Processing chat.parquet files ########################
-def process_chat():
-    if PARSED_DIR.glob("*/chat.parquet"):
-        for parquet_path in PARSED_DIR.glob("*/chat.parquet"):
-            print(parquet_path)
-            chat = pl.read_parquet(parquet_path)
-            df_chat = pd.read_parquet(parquet_path)
-
-            chat_msgs = (
-                chat.group_by("user_name").agg(pl.len().alias("chat_message"))
-                .sort("chat_message",descending=True)
-            )
-
-            top_chatters = chat_msgs.head()["user_name"]
-            i=1
-            for chatter in top_chatters:
-                print("top ",i," chatter is : ", chatter)
-                chatter_chats = df_chat[df_chat["user_name"] == chatter][["chat_message","user_name"]]
-                print(chatter_chats)
-                i=i+1
-            with pd.option_context('display.max_rows', None, 'display.width', None):
-                print(df_chat[["user_name","chat_message"]])
-    else:
-        print("No chat.parquet files found")
-
-
-""" Returns a df with total player kills """
-def get_total_kills():
-    if PARSED_DIR.glob("*/kills.parquet"):
-        total_kills_df = pd.DataFrame()
-        for parquet_path in PARSED_DIR.glob("*/kills.parquet"):
-            kills_df = util.get_game_kills(parquet_path)
-            total_kills_df = pd.concat([total_kills_df, kills_df], ignore_index=True)
-
-        total_kills_df = (total_kills_df.groupby("attacker_name").
-                          sum().
-                          reset_index().
-                          sort_values("kills", ascending=False))
-        return total_kills_df
-    else:
-        return FileNotFoundError
-
+########################        Main       ########################
 
 #process_kills()
 #process_chat()
