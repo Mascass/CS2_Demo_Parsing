@@ -1,5 +1,4 @@
 from pathlib import Path
-import polars as pl
 import pandas as pd
 import numpy as np
 import os
@@ -10,8 +9,8 @@ from demoparser2 import DemoParser
 import util.util_processing as util
 import batch_processing as bp
 
-
 PARSED_DIR = Path("parsed/")
+
 
 def clean(player_df):
     player_df = player_df.drop(columns=player_df.filter(like="name").columns)
@@ -24,22 +23,13 @@ def clean(player_df):
     return player_df
 
 
-def add_pair_key(df, a, b):
-    df = df.copy()
-    df[a] = df[a].astype(float)
-    df[b] = df[b].astype(float)
-    df["p_lo"] = np.minimum(df[a], df[b])   # order-independent pair id
-    df["p_hi"] = np.maximum(df[a], df[b])
-    return df
-
-
 def predict_corr():
     try:
         data_df = pd.read_csv("data/ml_kills_data.csv")
     except FileNotFoundError:
         print("File not found.")
         return
-
+    data_df = clean(data_df)
     corr = data_df.corr()
     # order = corr[" "].sort_values(ascending=False).index
     # corr_ordered = corr.loc[order, order]
@@ -48,6 +38,15 @@ def predict_corr():
     plt.figure(figsize=(20, 16))
     sns.heatmap(corr, mask=mask, annot=True, fmt=".2f", cmap="coolwarm", center=0)
     plt.show()
+
+
+def add_pair_key(df, a, b):
+    df = df.copy()
+    df[a] = df[a].astype(float)
+    df[b] = df[b].astype(float)
+    df["p_lo"] = np.minimum(df[a], df[b])   # order-independent pair id
+    df["p_hi"] = np.maximum(df[a], df[b])
+    return df
 
 
 def get_first_damage_ticks():
@@ -102,6 +101,31 @@ def set_data():
     print(data.columns)
     # data.to_csv("data/ml_kills_data.csv")
     parse_sample_ticks(data[["sample_tick","match_name"]])
+    # Need to create a match_id instead of match_name to use in a larger dataset and not have duplicates
 
+def get_dataset():
+    player_data = pd.read_parquet("data/prediction_ticks.parquet")
+    duel_data = pd.read_csv("data/ml_kills_data.csv")
+    player_data = player_data.rename(columns={"tick": "sample_tick"})
 
-set_data()
+    killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid"]].drop_duplicates(),
+                                    left_on=["sample_tick","match_name","steamid"],
+                                    right_on=["sample_tick","match_name","attacker_steamid"]
+                                    )
+
+    victim_data = player_data.merge(duel_data[["sample_tick","match_name","user_steamid"]].drop_duplicates(),
+                                    left_on=["sample_tick","match_name","steamid"],
+                                    right_on=["sample_tick","match_name","user_steamid"]
+                                    )
+
+    killer_data.drop(columns=["attacker_steamid"], inplace=True)
+    victim_data.drop(columns=["user_steamid"], inplace=True)
+    with pd.option_context("display.max_columns", None):
+        print(killer_data.head(10))
+    print(killer_data.columns)
+    with pd.option_context("display.max_columns", None):
+        print(victim_data.head(10))
+    print(victim_data.columns)
+
+# set_data()
+get_dataset()
