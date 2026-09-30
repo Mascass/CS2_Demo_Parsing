@@ -80,7 +80,7 @@ def get_first_damage_ticks():
 
 def parse_sample_ticks(sample_ticks):
     ticks_props = ["X", "Y", "Z", "pitch", "yaw", "health", "armor_value",
-                  "team_name", "is_alive", "current_equip_value"]
+                  "team_name", "current_equip_value"]
     wanted_df = pd.DataFrame()
     for demo_path in Path("demos/").glob("*.dem"):
         match_name = demo_path.stem
@@ -103,10 +103,12 @@ def set_data():
     parse_sample_ticks(data[["sample_tick","match_name"]])
     # Need to create a match_id instead of match_name to use in a larger dataset and not have duplicates
 
+
 def get_dataset():
     player_data = pd.read_parquet("data/prediction_ticks.parquet")
     duel_data = pd.read_csv("data/ml_kills_data.csv")
     player_data = player_data.rename(columns={"tick": "sample_tick"})
+
 
     killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid"]].drop_duplicates(),
                                     left_on=["sample_tick","match_name","steamid"],
@@ -118,14 +120,37 @@ def get_dataset():
                                     right_on=["sample_tick","match_name","user_steamid"]
                                     )
 
-    killer_data.drop(columns=["attacker_steamid"], inplace=True)
-    victim_data.drop(columns=["user_steamid"], inplace=True)
-    with pd.option_context("display.max_columns", None):
-        print(killer_data.head(10))
-    print(killer_data.columns)
-    with pd.option_context("display.max_columns", None):
-        print(victim_data.head(10))
-    print(victim_data.columns)
+    state_cols = ["sample_tick", "match_name"]
+    killer_data = killer_data.rename(columns=lambda c: f"K_{c}" if c not in state_cols else c)
+    victim_data = victim_data.rename(columns=lambda c: f"V_{c}" if c not in state_cols else c)
+    training_data = killer_data.merge(victim_data, on=["sample_tick", "match_name"])
+
+    training_data["A_dies"] = False
+    dataset = training_data.copy()
+    dataset["kill_id"] = (dataset["sample_tick"].astype(str) + "_" + dataset["match_name"].astype(str) + "_"
+                          + dataset["K_steamid"].astype(str) + "_" + dataset["V_steamid"].astype(str))
+    training_data.drop(columns=["match_name","sample_tick","K_attacker_steamid","V_user_steamid"], inplace=True)
+
+    rng = np.random.default_rng()
+    swap = rng.random(len(training_data)) < 0.5
+    keeping_cols = ["kill_id", "K_steamid", "V_steamid","K_name","V_name"]
+    label_col = "A_dies"
+    featured_cols = [c for c in dataset.columns if c not in keeping_cols + [label_col]]
+    cols_to_swap = sorted({
+        c[2:] for c in training_data.columns
+        if c in featured_cols and (c.startswith("K_") or c.startswith("V_"))
+    })
+
+    dataset = dataset[keeping_cols]
+    dataset["A_dies"] = swap.astype(bool)
+    for c in cols_to_swap:
+        dataset[f"A_{c}"] = np.where(swap, training_data[f"V_{c}"], training_data[f"K_{c}"])
+        dataset[f"B_{c}"] = np.where(swap, training_data[f"K_{c}"], training_data[f"V_{c}"])
+
+    dataset.to_csv("data/prediction_dataset.csv")
+
+
+
 
 # set_data()
-get_dataset()
+# get_dataset()
