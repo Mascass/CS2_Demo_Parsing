@@ -55,7 +55,7 @@ def get_first_damage_ticks():
         for demo_path in PARSED_DIR.glob("*/"):
             dmg_df = pd.read_parquet(os.path.join(demo_path, "damages.parquet"))
             kills_df = bp.process_duel(demo_path).reset_index(names="kill_id")
-            kills_df = kills_df[["attacker_steamid","user_steamid","tick","kill_id"]]
+            kills_df = kills_df[["attacker_steamid","user_steamid","tick","kill_id","is_duel"]]
             kill_p = add_pair_key(kills_df, "attacker_steamid", "user_steamid")
             hurt_p = add_pair_key(dmg_df, "attacker_steamid", "user_steamid")
 
@@ -99,7 +99,7 @@ def set_data():
     data = get_first_damage_ticks()
     print(data["sample_tick"])
     print(data.columns)
-    # data.to_csv("data/ml_kills_data.csv")
+    data.to_csv("data/ml_kills_data.csv")
     parse_sample_ticks(data[["sample_tick","match_name"]])
     # Need to create a match_id instead of match_name to use in a larger dataset and not have duplicates
 
@@ -107,33 +107,35 @@ def set_data():
 def get_dataset():
     player_data = pd.read_parquet("data/prediction_ticks.parquet")
     duel_data = pd.read_csv("data/ml_kills_data.csv")
+    dummies = pd.get_dummies(player_data['team_name'])
+    player_data = pd.concat([player_data, dummies], axis=1)
+    player_data = player_data.drop(columns=['team_name','TERRORIST',"yaw","pitch","X","Y","Z"])
     player_data = player_data.rename(columns={"tick": "sample_tick"})
 
 
-    killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid"]].drop_duplicates(),
+    killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid","is_duel"]].drop_duplicates(),
                                     left_on=["sample_tick","match_name","steamid"],
                                     right_on=["sample_tick","match_name","attacker_steamid"]
                                     )
 
-    victim_data = player_data.merge(duel_data[["sample_tick","match_name","user_steamid"]].drop_duplicates(),
+    victim_data = player_data.merge(duel_data[["sample_tick","match_name","user_steamid","is_duel"]].drop_duplicates(),
                                     left_on=["sample_tick","match_name","steamid"],
                                     right_on=["sample_tick","match_name","user_steamid"]
                                     )
-
-    state_cols = ["sample_tick", "match_name"]
+    state_cols = ["sample_tick", "match_name","is_duel"]
     killer_data = killer_data.rename(columns=lambda c: f"K_{c}" if c not in state_cols else c)
     victim_data = victim_data.rename(columns=lambda c: f"V_{c}" if c not in state_cols else c)
-    training_data = killer_data.merge(victim_data, on=["sample_tick", "match_name"])
-
+    training_data = killer_data.merge(victim_data, on=["sample_tick", "match_name","is_duel"])
     training_data["A_dies"] = False
     dataset = training_data.copy()
     dataset["kill_id"] = (dataset["sample_tick"].astype(str) + "_" + dataset["match_name"].astype(str) + "_"
                           + dataset["K_steamid"].astype(str) + "_" + dataset["V_steamid"].astype(str))
-    training_data.drop(columns=["match_name","sample_tick","K_attacker_steamid","V_user_steamid"], inplace=True)
+
+    training_data.drop(columns=["sample_tick","K_attacker_steamid","V_user_steamid"], inplace=True)
 
     rng = np.random.default_rng()
     swap = rng.random(len(training_data)) < 0.5
-    keeping_cols = ["kill_id", "K_steamid", "V_steamid","K_name","V_name"]
+    keeping_cols = ["match_name","kill_id","is_duel","K_steamid","V_steamid"]
     label_col = "A_dies"
     featured_cols = [c for c in dataset.columns if c not in keeping_cols + [label_col]]
     cols_to_swap = sorted({
@@ -153,4 +155,4 @@ def get_dataset():
 
 
 # set_data()
-# get_dataset()
+get_dataset()
