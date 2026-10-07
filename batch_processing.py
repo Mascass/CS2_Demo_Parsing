@@ -91,17 +91,15 @@ def distance_to_enemy(pos_self, pos_enemy):
 """ Direction from one player to another """
 def direction_to_enemy(pos_self, pos_enemy):
     vec = distance_to_enemy(pos_self, pos_enemy)
-    # Normalize vector to get direction only
-    if np.linalg.norm(vec) != 0:
-        return vec / np.linalg.norm(vec)
-    else:
-        return vec
+    norm = np.linalg.norm(vec, axis=0, keepdims=True)
+    norm = np.where(norm == 0, 1, norm)
+    return vec / norm
 
 ## Double Check later ##
 """ Angle between two vectors 0=facing, 180=behind """
 def angle_between(v1, v2):
-    dot = np.clip(np.dot(v1, v2), -1.0, 1.0)
-    # print(v1,v2)
+    dot = np.sum(v1 * v2, axis=0)
+    dot = np.clip(dot, -1.0, 1.0)
     return np.degrees(np.arccos(dot))
 
 """ Is the current player looking at the enemy? """
@@ -110,10 +108,11 @@ def is_looking_at(pos_self, pitch, yaw, pos_enemy):
     vec_to_enemy = direction_to_enemy(pos_self, pos_enemy)
     angle = angle_between(vec_self, vec_to_enemy)
     threshold = 25
-    # print(pos_self,pos_enemy)
     return angle < threshold
 
-""" Are the two players in a duel? """
+""" Are the two players in a duel? 
+attacker: df["attacker_name","X","Y","Z","pitch","yaw"]
+victim: df["user_name","X","Y","Z","pitch","yaw"]"""
 def is_duel(attacker, victim):
     a_pos = (attacker["X"], attacker["Y"], attacker["Z"])
     v_pos = (victim["X"], victim["Y"], victim["Z"])
@@ -123,24 +122,6 @@ def is_duel(attacker, victim):
 
 """ True if kills is a duel """
 def analyze_kill(kills_df,ticks_df):
-    ### Would be better to use steamid but have not parsed it yet
-
-    # attacker_ticks = ticks_df.rename(columns=lambda c: f"attacker_{c}")
-    # victim_ticks = ticks_df.rename(columns=lambda c: f"victim_{c}")
-    #
-    # merged = kills_df.merge(
-    #     attacker_ticks,
-    #     left_on=["tick", "attacker_name"],
-    #     right_on=["attacker_tick", "attacker_name"],
-    #     how="left"
-    # ).merge(
-    #     victim_ticks,
-    #     left_on=["tick", "user_name"],
-    #     right_on=["victim_tick", "victim_name"],
-    #     how="left"
-    # )
-    # return merged
-
     tick = kills_df["tick"]
     attacker_name = kills_df["attacker_name"]
     victim_name = kills_df["user_name"]
