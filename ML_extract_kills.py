@@ -180,7 +180,8 @@ def adjust_dataset():
     ])
     dataset["distance"] = np.linalg.norm(diff, axis=0).round(1)
     dataset = dataset[dataset["distance"] != 0.]
-    dataset.drop(columns=["is_duel","A_X","A_Y","A_Z","B_X","B_Y","B_Z","A_pitch","A_yaw","B_pitch","B_yaw"], inplace=True)
+    print(dataset.columns)
+    dataset.drop(columns=["is_duel","A_X","A_Y","A_Z","B_X","B_Y","B_Z","A_pitch","A_yaw","B_pitch","B_yaw","Unnamed: 0"], inplace=True)
     dataset.to_csv("data/prediction_dataset.csv")
     print("prediction_dataset.csv Adjusted")
 

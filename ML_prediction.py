@@ -2,19 +2,19 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import GroupShuffleSplit, GroupKFold, GridSearchCV
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, f1_score
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, f1_score, log_loss
 
 
 def init():
     data=pd.read_csv("data/prediction_dataset.csv")
+    data.drop('Unnamed: 0', axis=1, inplace=True)
     id_cols = ["kill_id", "A_steamid", "B_steamid", "match_name"]
     label_col = "A_dies"
     feature_cols = [c for c in data.columns if c not in ( id_cols + [label_col] + ["A_name","B_name"])]
-    print(feature_cols)
     X = data[feature_cols]
     y = data[label_col]
     groups = data["match_name"]
-
+    print("Featured Columns: ", feature_cols)
     return X, y, groups
 
 def split_data(X, y, groups):
@@ -24,16 +24,8 @@ def split_data(X, y, groups):
 
     X_trainval, X_test = X.iloc[trainval_idx], X.iloc[test_idx]
     y_trainval, y_test = y.iloc[trainval_idx], y.iloc[test_idx]
-    groups_trainval = groups.iloc[trainval_idx]
 
-    # Split 2: carve validation out of what's left, still by match
-    validation_set = GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=111)
-    train_idx, val_idx = next(validation_set.split(X_trainval, y_trainval, groups_trainval))
-
-    X_train, X_val = X_trainval.iloc[train_idx], X_trainval.iloc[val_idx]
-    y_train, y_val = y_trainval.iloc[train_idx], y_trainval.iloc[val_idx]
-
-    print(f"train: {len(X_train)}  val: {len(X_val)}  test: {len(X_test)}")
+    print(f"train: {len(X_trainval)}  test: {len(X_test)}")
 
     clf = RandomForestClassifier(
         n_estimators=500,
@@ -43,19 +35,15 @@ def split_data(X, y, groups):
         n_jobs=-1,
         class_weight="balanced"  # in case A_dies isn't ~50/50 after dropping failed merges etc.
     )
-    clf.fit(X_train, y_train)
-    val_pred = clf.predict(X_val)
-    val_proba = clf.predict_proba(X_val)[:, 1]
-    print("Validation f1-score:", f1_score(y_val, val_pred))
-    print("Validation AUC:", roc_auc_score(y_val, val_proba))
-    print(classification_report(y_val, val_pred))
-
+    print(clf)
+    clf.fit(X_trainval, y_trainval)
 
     test_pred = clf.predict(X_test)
     test_proba = clf.predict_proba(X_test)[:, 1]
-    print("Test f1-score:", f1_score(y_test, test_pred))
+    print("Log loss:", log_loss(y_test, test_proba))
+    print("Accuracy:", accuracy_score(y_test, test_pred))
     print("Test AUC:", roc_auc_score(y_test, test_proba))
-    print(classification_report(y_test, test_pred))
+    # print(classification_report(y_test, test_pred))
 
 
 def split_data_gb(X, y, groups):
@@ -66,6 +54,7 @@ def split_data_gb(X, y, groups):
     X_trainval, X_test = X.iloc[trainval_idx], X.iloc[test_idx]
     y_trainval, y_test = y.iloc[trainval_idx], y.iloc[test_idx]
 
+    print()
     print(f"train: {len(X_trainval)}   test: {len(X_test)}")
 
     clf = GradientBoostingClassifier(
@@ -75,13 +64,15 @@ def split_data_gb(X, y, groups):
         subsample=.5,
         random_state=111,
     )
+    print(clf)
     clf.fit(X_trainval, y_trainval)
 
-    val_pred = clf.predict(X_test)
-    val_proba = clf.predict_proba(X_test)[:, 1]
-    print("f1_score:", f1_score(y_test, val_pred))
-    print("ROC_AUC:", roc_auc_score(y_test, val_proba))
-    print(classification_report(y_test, val_pred))
+    test_pred = clf.predict(X_test)
+    test_proba = clf.predict_proba(X_test)[:, 1]
+    print("Log loss:", log_loss(y_test, test_proba))
+    print("Accuracy:", accuracy_score(y_test, test_pred))
+    print("ROC_AUC:", roc_auc_score(y_test, test_proba))
+    # print(classification_report(y_test, test_pred))
 
     return clf
 
@@ -90,19 +81,15 @@ def split_data_gb(X, y, groups):
 X,y,groups = init()
 split_data(X,y,groups)
 split_data_gb(X,y,groups)
+# Log loss explanation :
+# >0.693	No better than guessing 50/50
+# 0.5–0.65	Weak but real signal
+# 0.3–0.5	Decent, reasonably confident and mostly right
+# < 0.3	Strong, well-calibrated model
+# near 0	Suspiciously perfect
 
 
-
-###################################  Start with Logistic Regression ####################################
-#
-#1 Split your data into train and test sets, keeping the result column hidden from the model during prediction, as you described.
-#2 Fit logistic regression as a baseline.
-#3 Fit LightGBM or random forest and compare using cross-validation, not just one split.
-#4 Choose your metric carefully. If Yes/No is imbalanced (say 95% No), accuracy is misleading. Use F1, precision/recall, or ROC-AUC instead.
-#5 Tune only the winner, and evaluate it once on the held-out test set.
-# List of columns to add to dataset :
-# Instead of is_duel : a_sees_b
-# Distance
+# List of remaining columns to add to dataset :
 # Move Speed
 # Z difference
 # HP/armor/equip differences
