@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GroupShuffleSplit
-from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.model_selection import GroupShuffleSplit, GroupKFold, GridSearchCV
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, f1_score
 
 
 def init():
@@ -10,7 +10,7 @@ def init():
     id_cols = ["kill_id", "A_steamid", "B_steamid", "match_name"]
     label_col = "A_dies"
     feature_cols = [c for c in data.columns if c not in ( id_cols + [label_col] + ["A_name","B_name"])]
-
+    print(feature_cols)
     X = data[feature_cols]
     y = data[label_col]
     groups = data["match_name"]
@@ -36,8 +36,8 @@ def split_data(X, y, groups):
     print(f"train: {len(X_train)}  val: {len(X_val)}  test: {len(X_test)}")
 
     clf = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=None,
+        n_estimators=500,
+        max_depth=2,
         min_samples_split=5,  # guards against overfitting on noisy per-tick features
         random_state=111,
         n_jobs=-1,
@@ -46,22 +46,52 @@ def split_data(X, y, groups):
     clf.fit(X_train, y_train)
     val_pred = clf.predict(X_val)
     val_proba = clf.predict_proba(X_val)[:, 1]
-    print("Validation accuracy:", accuracy_score(y_val, val_pred))
+    print("Validation f1-score:", f1_score(y_val, val_pred))
     print("Validation AUC:", roc_auc_score(y_val, val_proba))
     print(classification_report(y_val, val_pred))
 
 
     test_pred = clf.predict(X_test)
     test_proba = clf.predict_proba(X_test)[:, 1]
-    print("Test accuracy:", accuracy_score(y_test, test_pred))
+    print("Test f1-score:", f1_score(y_test, test_pred))
     print("Test AUC:", roc_auc_score(y_test, test_proba))
+    print(classification_report(y_test, test_pred))
 
-#
-# X,y,groups = init()
-# split_data(X,y,groups)
 
-df=pd.read_csv("data/prediction_dataset.csv")
-print(df.columns)
+def split_data_gb(X, y, groups):
+    # Split 1: separate out the test set by match
+    test_set = GroupShuffleSplit(n_splits=1, test_size=0.33, random_state=111)
+    trainval_idx, test_idx = next(test_set.split(X, y, groups))
+
+    X_trainval, X_test = X.iloc[trainval_idx], X.iloc[test_idx]
+    y_trainval, y_test = y.iloc[trainval_idx], y.iloc[test_idx]
+
+    print(f"train: {len(X_trainval)}   test: {len(X_test)}")
+
+    clf = GradientBoostingClassifier(
+        n_estimators=200,
+        learning_rate=0.05,
+        max_depth=3,
+        subsample=.5,
+        random_state=111,
+    )
+    clf.fit(X_trainval, y_trainval)
+
+    val_pred = clf.predict(X_test)
+    val_proba = clf.predict_proba(X_test)[:, 1]
+    print("f1_score:", f1_score(y_test, val_pred))
+    print("ROC_AUC:", roc_auc_score(y_test, val_proba))
+    print(classification_report(y_test, val_pred))
+
+    return clf
+
+
+
+X,y,groups = init()
+split_data(X,y,groups)
+split_data_gb(X,y,groups)
+
+
 
 ###################################  Start with Logistic Regression ####################################
 #
@@ -70,3 +100,11 @@ print(df.columns)
 #3 Fit LightGBM or random forest and compare using cross-validation, not just one split.
 #4 Choose your metric carefully. If Yes/No is imbalanced (say 95% No), accuracy is misleading. Use F1, precision/recall, or ROC-AUC instead.
 #5 Tune only the winner, and evaluate it once on the held-out test set.
+# List of columns to add to dataset :
+# Instead of is_duel : a_sees_b
+# Distance
+# Move Speed
+# Z difference
+# HP/armor/equip differences
+# X,Y difference
+# Flash/smoke status
