@@ -91,6 +91,7 @@ def clean_prediction_dataset(wanted_df):
 '''Parse ticks parquet for all demos to create a df with info on only the wanted ticks
 Add match name column
 '''
+# Add velocity here, need to fix NaN values
 def parse_sample_ticks(sample_ticks):
     ticks_props = ["X", "Y", "Z", "pitch", "yaw", "health", "armor_value",
                   "team_name", "current_equip_value"]
@@ -186,6 +187,6 @@ def adjust_dataset():
     print("prediction_dataset.csv Adjusted")
 
 
-# set_data()
+set_data()
 get_dataset()
 adjust_dataset()

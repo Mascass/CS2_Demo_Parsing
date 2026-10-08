@@ -74,6 +74,11 @@ def split_data_gb(X, y, groups):
     print("ROC_AUC:", roc_auc_score(y_test, test_proba))
     # print(classification_report(y_test, test_pred))
 
+    from sklearn.metrics import RocCurveDisplay
+    from matplotlib import pyplot as plt
+    RocCurveDisplay.from_predictions(y_test, test_proba)
+    plt.show()
+
     return clf
 
 

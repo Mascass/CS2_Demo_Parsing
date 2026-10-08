@@ -20,7 +20,8 @@ ROC_AUC: 0.7725800221235053
 #########################################################################################################
 Edit: dropped 2 unnamed columns and added metrics
 Dataset: All Spirit matches in the 2026 Cologne Major
-Featured Columns:  ['K_steamid', 'V_steamid', 'A_CT', 'B_CT', 'A_armor_value', 'B_armor_value', 'A_current_equip_value', 'B_current_equip_value', 'A_health', 'B_health', 'A_sees_B', 'B_sees_A', 'distance']
+Featured Columns:  ['K_steamid', 'V_steamid', 'A_CT', 'B_CT', 'A_armor_value', 'B_armor_value',
+'A_current_equip_value', 'B_current_equip_value', 'A_health', 'B_health', 'A_sees_B', 'B_sees_A', 'distance']
 train: 1802  test: 675
 RandomForestClassifier(class_weight='balanced', max_depth=2,
                        min_samples_split=5, n_estimators=500, n_jobs=-1,
