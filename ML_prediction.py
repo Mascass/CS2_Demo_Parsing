@@ -6,7 +6,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
 
 
 def init():
-    data=pd.read_csv("data/prediction_dataset.csv")
+    data=pd.read_csv("data/adjusted_prediction_dataset.csv").dropna()
     data.drop('Unnamed: 0', axis=1, inplace=True)
     id_cols = ["kill_id", "A_steamid", "B_steamid", "match_name"]
     label_col = "A_dies"
@@ -100,3 +100,8 @@ split_data_gb(X,y,groups)
 # HP/armor/equip differences
 # X,Y difference
 # Flash/smoke status
+# Round context : 5v5; 3v2
+# Is there multiple enemies on screen
+# Is the duel happening after a kill (trade potential)
+
+# Faire d'abord extract kills puis ensuite parse les ticks pour avoir les sample ticks au lieu d'avoir les ticks au moment du kills

@@ -6,8 +6,7 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from demoparser2 import DemoParser
 
-import util.util_processing as util
-import batch_processing as bp
+from util import batch_processing as bp
 
 PARSED_DIR = Path("parsed/")
 
@@ -54,9 +53,9 @@ def get_first_damage_ticks():
         extract_kills_df = pd.DataFrame()
         for demo_path in PARSED_DIR.glob("*/"):
             dmg_df = pd.read_parquet(os.path.join(demo_path, "damages.parquet"))
-            kills_df = bp.process_duel(demo_path).reset_index(names="kill_id")
+            kills_df = pd.read_parquet(os.path.join(demo_path, "kills.parquet")).reset_index(names="kill_id")
             # Keep the below columns in the dataset to merge with damage and tick info later
-            kills_df = kills_df[["attacker_steamid","user_steamid","tick","kill_id","is_duel"]]
+            kills_df = kills_df[["attacker_steamid","user_steamid","tick","kill_id"]]
             kill_p = add_pair_key(kills_df, "attacker_steamid", "user_steamid")
             hurt_p = add_pair_key(dmg_df, "attacker_steamid", "user_steamid")
 
@@ -81,36 +80,89 @@ def get_first_damage_ticks():
 
 ''' Clean dataset to fit the wanted columns of the prediction dataset'''
 def clean_prediction_dataset(wanted_df):
-    dummies = pd.get_dummies(wanted_df['team_name'])
-    wanted_df = pd.concat([wanted_df, dummies], axis=1)
-    wanted_df = wanted_df.drop(columns=['team_name','TERRORIST'])
-    wanted_df = wanted_df.rename(columns={"tick": "sample_tick"})
+    try:
+        dummies = pd.get_dummies(wanted_df['team_name'])
+        wanted_df = pd.concat([wanted_df, dummies], axis=1)
+        wanted_df = wanted_df.drop(columns=['team_name','TERRORIST'])
+    except:
+        "No team name column in clean_prediction_dataset"
+    try:
+        wanted_df = wanted_df.rename(columns={"tick": "sample_tick"})
+    except:
+        "No tick column in clean_prediction_dataset"
     return wanted_df
 
 
 '''Parse ticks parquet for all demos to create a df with info on only the wanted ticks
 Add match name column
 '''
-# Add velocity here, need to fix NaN values
 def parse_sample_ticks(sample_ticks):
     ticks_props = ["X", "Y", "Z", "pitch", "yaw", "health", "armor_value",
                   "team_name", "current_equip_value"]
     wanted_df = pd.DataFrame()
+    wanted_df_minus_1 = pd.DataFrame()
     for demo_path in Path("demos/").glob("*.dem"):
         match_name = demo_path.stem
         parser = DemoParser(str(demo_path))
+        # Parse only wanted ticks and use to get ticks-1 to calculate velocity after
         wanted_ticks = sample_ticks[sample_ticks["match_name"] == match_name]
+        wanted_ticks_minus_1 = (wanted_ticks["sample_tick"]-1).tolist()
         wanted_ticks = wanted_ticks["sample_tick"].tolist()
 
         ticks_df = parser.parse_ticks(ticks_props,ticks=wanted_ticks)
+        ticks_df_minus_1 = parser.parse_ticks(["X","Y","Z"],ticks=wanted_ticks_minus_1)
         ticks_df["match_name"] = match_name
+        ticks_df_minus_1["match_name"] = match_name
+        #ticks_df.to_parquet(f"parsed/{match_name}/sample_ticks.parquet")
         wanted_df = pd.concat([wanted_df,ticks_df], ignore_index=True)
+        wanted_df_minus_1 = pd.concat([wanted_df_minus_1,ticks_df_minus_1], ignore_index=True)
 
 
     # Clean the dataset as wanted to get the best prediction dataset
     wanted_df = clean_prediction_dataset(wanted_df)
     wanted_df.to_parquet("data/prediction_ticks.parquet")
+    wanted_df_minus_1.to_parquet("data/velocity_calc_ticks.parquet")
     print("prediction_ticks.parquet Done")
+
+'''df : prediction_dataset'''
+def get_velocity(dataset,nb_of_ticks=1):
+    velocity_df = pd.read_parquet("data/velocity_calc_ticks.parquet")
+    # Get nb_of_ticks previous ticks (need to parse all ticks for this to actually work)
+    dataset["prev_tick"] = dataset["sample_tick"] - nb_of_ticks
+    # Merge
+    velocity_props = ["tick", "steamid", "X", "Y", "Z"]
+    pred_propsK = ["prev_tick", "K_steamid", "K_X", "K_Y", "K_Z"]
+    pred_propsV = ["prev_tick", "V_steamid", "V_X", "V_Y", "V_Z"]
+    # Merge only killers
+    df_k = (
+        velocity_df[velocity_props].merge(dataset[pred_propsK], right_on=["prev_tick", "K_steamid"],
+               left_on=["tick", "steamid"], how="right")
+    ).dropna()
+    # Merge only victims
+    df_v = (
+        velocity_df[velocity_props].merge(dataset[pred_propsV], right_on=["prev_tick", "V_steamid"],
+               left_on=["tick", "steamid"], how="right")
+    ).dropna()
+
+    # Velocity computation for each
+    df_k["velocity"] = np.sqrt(
+        (df_k["K_X"] - df_k["X"]) ** 2 +
+        (df_k["K_Y"] - df_k["Y"]) ** 2 +
+        (df_k["K_Z"] - df_k["Z"]) ** 2
+    )*64
+    df_v["velocity"] = np.sqrt(
+        (df_v["V_X"] - df_v["X"]) ** 2 +
+        (df_v["V_Y"] - df_v["Y"]) ** 2 +
+        (df_v["V_Z"] - df_v["Z"]) ** 2
+    )*64
+    # Merge on the same row velocity_x = K_velocity and velocity_y = V_velocity
+    df = (
+        dataset[["prev_tick", "K_steamid","V_steamid"]]
+        .merge(df_k[["prev_tick", "K_steamid", "velocity"]], on=["prev_tick", "K_steamid"], how="left")
+        .merge(df_v[["prev_tick", "V_steamid", "velocity"]], on=["prev_tick", "V_steamid"], how="left")
+    ).drop_duplicates()
+
+    return df["velocity_x"], df["velocity_y"]
 
 '''Create a csv file extracting kills to use in a prediction with the wanted columns. '''
 def set_data():
@@ -125,31 +177,40 @@ def set_data():
 def get_dataset():
     player_data = pd.read_parquet("data/prediction_ticks.parquet")
     duel_data = pd.read_csv("data/ml_kills_data.csv")
-
-    killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid","is_duel"]].drop_duplicates(),
+    # Separate into killer and victim dataframe then merge them together (steam_id to fix dupes and bugs) to get kill dataset
+    killer_data = player_data.merge(duel_data[["sample_tick","match_name","attacker_steamid"]].drop_duplicates(),
                                     left_on=["sample_tick","match_name","steamid"],
                                     right_on=["sample_tick","match_name","attacker_steamid"]
                                     )
 
-    victim_data = player_data.merge(duel_data[["sample_tick","match_name","user_steamid","is_duel"]].drop_duplicates(),
+    victim_data = player_data.merge(duel_data[["sample_tick","match_name","user_steamid","attacker_steamid"]].drop_duplicates(),
                                     left_on=["sample_tick","match_name","steamid"],
                                     right_on=["sample_tick","match_name","user_steamid"]
                                     )
-    state_cols = ["sample_tick", "match_name","is_duel"]
+
+    state_cols = ["sample_tick", "match_name"]
     killer_data = killer_data.rename(columns=lambda c: f"K_{c}" if c not in state_cols else c)
     victim_data = victim_data.rename(columns=lambda c: f"V_{c}" if c not in state_cols else c)
-    training_data = killer_data.merge(victim_data, on=["sample_tick", "match_name","is_duel"])
+    training_data = killer_data.merge(victim_data,
+                                      left_on=["sample_tick", "match_name","K_steamid"],
+                                      right_on=["sample_tick", "match_name","V_attacker_steamid"]
+                                      )
 
+    # A is equivalent to K at this point
     training_data["A_dies"] = False
+
+    # Create velocity column
+    training_data["K_velocity"],training_data["V_velocity"] = get_velocity(training_data,nb_of_ticks=1)
+
     dataset = training_data.copy()
     dataset["kill_id"] = (dataset["sample_tick"].astype(str) + "_" + dataset["match_name"].astype(str) + "_"
                           + dataset["K_steamid"].astype(str) + "_" + dataset["V_steamid"].astype(str))
+    training_data.drop(columns=["sample_tick","K_attacker_steamid","V_user_steamid","V_attacker_steamid"], inplace=True)
 
-    training_data.drop(columns=["sample_tick","K_attacker_steamid","V_user_steamid"], inplace=True)
-
+    # Create randomized swap of K and V
     rng = np.random.default_rng()
     swap = rng.random(len(training_data)) < 0.5
-    keeping_cols = ["match_name","kill_id","is_duel","K_steamid","V_steamid"]
+    keeping_cols = ["match_name","kill_id","K_steamid","V_steamid"]
     label_col = "A_dies"
     featured_cols = [c for c in dataset.columns if c not in keeping_cols + [label_col]]
     cols_to_swap = sorted({
@@ -169,11 +230,12 @@ def get_dataset():
 
 def adjust_dataset():
     dataset = pd.read_csv("data/prediction_dataset.csv")
+    # Create A_sees_B and B_sees_A columns
     a_pos = (dataset["A_X"], dataset["A_Y"], dataset["A_Z"])
     b_pos = (dataset["B_X"], dataset["B_Y"], dataset["B_Z"])
     dataset["A_sees_B"] = bp.is_looking_at(a_pos, dataset["A_pitch"], dataset["A_yaw"], b_pos)
     dataset["B_sees_A"] = bp.is_looking_at(b_pos, dataset["B_pitch"], dataset["B_yaw"], a_pos)
-
+    # Create distance between 2 players column
     diff = np.array([
         dataset["A_X"] - dataset["B_X"],
         dataset["A_Y"] - dataset["B_Y"],
@@ -182,11 +244,12 @@ def adjust_dataset():
     dataset["distance"] = np.linalg.norm(diff, axis=0).round(1)
     dataset = dataset[dataset["distance"] != 0.]
     print(dataset.columns)
-    dataset.drop(columns=["is_duel","A_X","A_Y","A_Z","B_X","B_Y","B_Z","A_pitch","A_yaw","B_pitch","B_yaw","Unnamed: 0"], inplace=True)
-    dataset.to_csv("data/prediction_dataset.csv")
+    # Drop columns ruining the prediction
+    dataset.drop(columns=["A_X","A_Y","A_Z","B_X","B_Y","B_Z","A_pitch","A_yaw","B_pitch","B_yaw","Unnamed: 0"], inplace=True)
+    dataset.to_csv("data/adjusted_prediction_dataset.csv")
     print("prediction_dataset.csv Adjusted")
 
 
-set_data()
+# set_data()
 get_dataset()
 adjust_dataset()

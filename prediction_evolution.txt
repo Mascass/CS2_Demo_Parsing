@@ -38,3 +38,24 @@ f1_score: 0.6497622820919176
 Log loss: 0.5572893944994098
 Accuracy: 0.6725925925925926
 ROC_AUC: 0.7725930612675315
+
+
+#########################################################################################################
+#########################################################################################################
+Edit: Added velocity metric and removed duplicates and bugs (kills which never happened)
+Dataset: All Spirit matches in the 2026 Cologne Major
+Featured Columns:  ['K_steamid', 'V_steamid', 'A_CT', 'B_CT', 'A_armor_value', 'B_armor_value', 'A_current_equip_value', 'B_current_equip_value', 'A_health', 'B_health', 'A_velocity', 'B_velocity', 'A_sees_B', 'B_sees_A', 'distance']
+train: 1682  test: 671
+RandomForestClassifier(class_weight='balanced', max_depth=2,
+                       min_samples_split=5, n_estimators=500, n_jobs=-1,
+                       random_state=111)
+Log loss: 0.6210733616846495
+Accuracy: 0.6944858420268256
+Test AUC: 0.7793180966654177
+
+train: 1682   test: 671
+GradientBoostingClassifier(learning_rate=0.05, n_estimators=200,
+                           random_state=111, subsample=0.5)
+Log loss: 0.5433785656639105
+Accuracy: 0.706408345752608
+ROC_AUC: 0.7935913218790701
