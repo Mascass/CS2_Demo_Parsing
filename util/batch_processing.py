@@ -5,7 +5,7 @@ import numpy as np
 import os
 import util.util_processing as util
 
-PARSED_DIR = Path("parsed/")
+PARSED_DIR = Path("../parsed/")
 
 
 
