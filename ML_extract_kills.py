@@ -1,4 +1,7 @@
 from pathlib import Path
+from winreg import error
+
+import errno
 import pandas as pd
 import numpy as np
 import os
@@ -75,6 +78,7 @@ def get_first_damage_ticks():
 
         extract_kills_df.to_csv("data/ml_kills_data.csv")
         print("ml_kills_data.csv Done")
+        return extract_kills_df
     else:
         return FileNotFoundError
 
@@ -93,6 +97,21 @@ def clean_prediction_dataset(wanted_df):
         "No tick column in clean_prediction_dataset"
     return wanted_df
 
+'''Parse ticks if needed or retrieve parquet file from /parsed '''
+def parse_ticks_cached(parser, props, ticks, parsed_path):
+    parsed_path = Path(parsed_path)
+    ticks = list(ticks)
+
+    if parsed_path.exists():
+        cached = pd.read_parquet(parsed_path)
+        # only reuse the cache if it covers everything we need now
+        if set(ticks).issubset(cached["tick"]) and set(props).issubset(cached.columns):
+            return cached[cached["tick"].isin(ticks)].reset_index(drop=True)
+
+    df = parser.parse_ticks(props, ticks=ticks)
+    parsed_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(parsed_path)
+    return df
 
 '''Parse ticks parquet for all demos to create a df with info on only the wanted ticks
 Add match name column
@@ -110,13 +129,16 @@ def parse_sample_ticks(sample_ticks):
         wanted_ticks_minus_1 = (wanted_ticks["sample_tick"]-1).tolist()
         wanted_ticks = wanted_ticks["sample_tick"].tolist()
 
-        ticks_df = parser.parse_ticks(ticks_props,ticks=wanted_ticks)
-        ticks_df_minus_1 = parser.parse_ticks(["X","Y","Z"],ticks=wanted_ticks_minus_1)
+        parsed_path = Path("parsed") / match_name
+        ticks_df = parse_ticks_cached(parser, ticks_props, wanted_ticks, parsed_path / "sample_ticks.parquet")
+        ticks_df_minus_1 = parse_ticks_cached(parser, ["X", "Y", "Z"], wanted_ticks_minus_1,
+                                              parsed_path / "sample_ticks_minus_1.parquet")
+
+        # ticks_df = parser.parse_ticks(ticks_props,ticks=wanted_ticks)
+        # ticks_df_minus_1 = parser.parse_ticks(["X","Y","Z"],ticks=wanted_ticks_minus_1)
         ticks_df["match_name"] = match_name
         ticks_df_minus_1["match_name"] = match_name
-        # Parsed ticks twice, it could be optimal to create a parquet file for each
-        # and try to use if available instead of parsing everytime
-        #ticks_df.to_parquet(f"parsed/{match_name}/sample_ticks.parquet")
+
         wanted_df = pd.concat([wanted_df,ticks_df], ignore_index=True)
         wanted_df_minus_1 = pd.concat([wanted_df_minus_1,ticks_df_minus_1], ignore_index=True)
 
@@ -152,12 +174,12 @@ def get_velocity(dataset,nb_of_ticks=1):
         (df_k["K_X"] - df_k["X"]) ** 2 +
         (df_k["K_Y"] - df_k["Y"]) ** 2 +
         (df_k["K_Z"] - df_k["Z"]) ** 2
-    )*64
+    )*64/nb_of_ticks
     df_v["velocity"] = np.sqrt(
         (df_v["V_X"] - df_v["X"]) ** 2 +
         (df_v["V_Y"] - df_v["Y"]) ** 2 +
         (df_v["V_Z"] - df_v["Z"]) ** 2
-    )*64
+    )*64/nb_of_ticks
     # Merge on the same row velocity_x = K_velocity and velocity_y = V_velocity
     df = (
         dataset[["prev_tick", "K_steamid","V_steamid"]]
@@ -243,7 +265,8 @@ def adjust_dataset():
         dataset["A_Z"] - dataset["B_Z"],
     ])
     dataset["distance"] = np.linalg.norm(diff, axis=0).round(1)
-    print("0 distance kills",dataset[dataset["distance"] == 0.])
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    #     print("0 distance kills",dataset[dataset["distance"] == 0.])
     dataset = dataset[dataset["distance"] != 0.] # Removes self kills
 
     # Create difference columns
@@ -263,6 +286,6 @@ def adjust_dataset():
     print("prediction_dataset.csv Adjusted")
 
 
-# set_data()
+set_data()
 get_dataset()
 adjust_dataset()

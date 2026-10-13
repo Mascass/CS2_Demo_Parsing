@@ -80,3 +80,38 @@ GradientBoostingClassifier(learning_rate=0.05, min_samples_leaf=20,
 Log loss: 0.5104098752964659
 Accuracy: 0.7408675799086758
 ROC_AUC: 0.8275281484570476
+
+
+
+#########################################################################################################
+#########################################################################################################
+Edit: Dropped B_CT, Revamped pipeline to use cross validation (clearly realised previous predictions were not done rigorously)
+Dataset: All Spirit matches in the 2026 Cologne Major
+Featured Columns:  ['K_steamid', 'V_steamid', 'A_CT', 'A_velocity', 'B_velocity', 'A_sees_B', 'B_sees_A', 'distance', 'diff_health', 'diff_armor_value', 'diff_current_equip_value', 'diff_Z']
+
+[CV 5-fold grouped] rf
+Time elapsed :  6.1293535232543945
+  log_loss: 0.5564 +/- 0.0134
+  accuracy: 0.7179 +/- 0.0233
+  roc_auc: 0.7941 +/- 0.0242
+
+[CV 5-fold grouped] gb
+Time elapsed :  1.761031150817871
+  log_loss: 0.5554 +/- 0.0250
+  accuracy: 0.6995 +/- 0.0253
+  roc_auc: 0.7872 +/- 0.0183
+
+Ranking by Cross Validation log loss: ['gb', 'rf']
+Testing:  ['gb', 'rf']
+train: 1477  test: 876
+GradientBoostingClassifier(learning_rate=0.05, min_samples_leaf=20,
+                           n_estimators=200, random_state=1111, subsample=0.5)
+Log loss: 0.5152
+Accuracy: 0.7489
+ROC_AUC: 0.8251
+train: 1477  test: 876
+RandomForestClassifier(max_depth=6, min_samples_split=5, n_estimators=500,
+                       n_jobs=-1, random_state=1111)
+Log loss: 0.5335
+Accuracy: 0.7466
+ROC_AUC: 0.8240
