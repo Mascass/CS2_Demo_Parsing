@@ -1,25 +1,38 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, HistGradientBoostingClassifier
 from sklearn.model_selection import GroupShuffleSplit, GroupKFold, GridSearchCV
 from sklearn.metrics import accuracy_score, roc_auc_score, classification_report, f1_score, log_loss
+from sklearn.metrics import RocCurveDisplay
+from matplotlib import pyplot as plt
 
+SEED = 1111
 
 def init():
     data=pd.read_csv("data/adjusted_prediction_dataset.csv").dropna()
     data.drop('Unnamed: 0', axis=1, inplace=True)
-    id_cols = ["kill_id", "A_steamid", "B_steamid", "match_name"]
+    id_cols = ["kill_id", "A_steamid", "B_steamid", "match_name","A_name","B_name"]
     label_col = "A_dies"
-    feature_cols = [c for c in data.columns if c not in ( id_cols + [label_col] + ["A_name","B_name"])]
+    feature_cols = [c for c in data.columns if c not in ( id_cols + [label_col] )]
     X = data[feature_cols]
     y = data[label_col]
     groups = data["match_name"]
     print("Featured Columns: ", feature_cols)
     return X, y, groups
 
+'''Print a report of the model's performance'''
+def reporting(test_proba, y_test):
+    print("Log loss:", log_loss(y_test, test_proba))
+    print("Accuracy:", accuracy_score(y_test, test_proba > 0.5))
+    print("ROC_AUC:", roc_auc_score(y_test, test_proba))
+    # print(classification_report(y_test, test_proba > 0.5))
+    RocCurveDisplay.from_predictions(y_test, test_proba)
+    plt.show()
+
+
 def split_data(X, y, groups):
     # Split 1: separate out the test set by match
-    test_set = GroupShuffleSplit(n_splits=1, test_size=0.33, random_state=111)
+    test_set = GroupShuffleSplit(n_splits=1, test_size=0.33, random_state=SEED)
     trainval_idx, test_idx = next(test_set.split(X, y, groups))
 
     X_trainval, X_test = X.iloc[trainval_idx], X.iloc[test_idx]
@@ -29,26 +42,23 @@ def split_data(X, y, groups):
 
     clf = RandomForestClassifier(
         n_estimators=500,
-        max_depth=2,
+        max_depth=6,
+        # min_samples_leaf=10,
         min_samples_split=5,  # guards against overfitting on noisy per-tick features
-        random_state=111,
+        random_state=SEED,
         n_jobs=-1,
         class_weight="balanced"  # in case A_dies isn't ~50/50 after dropping failed merges etc.
     )
     print(clf)
-    clf.fit(X_trainval, y_trainval)
 
-    test_pred = clf.predict(X_test)
+    clf.fit(X_trainval, y_trainval)
     test_proba = clf.predict_proba(X_test)[:, 1]
-    print("Log loss:", log_loss(y_test, test_proba))
-    print("Accuracy:", accuracy_score(y_test, test_pred))
-    print("Test AUC:", roc_auc_score(y_test, test_proba))
-    # print(classification_report(y_test, test_pred))
+    reporting(test_proba,y_test)
 
 
 def split_data_gb(X, y, groups):
     # Split 1: separate out the test set by match
-    test_set = GroupShuffleSplit(n_splits=1, test_size=0.33, random_state=111)
+    test_set = GroupShuffleSplit(n_splits=1, test_size=0.33, random_state=SEED)
     trainval_idx, test_idx = next(test_set.split(X, y, groups))
 
     X_trainval, X_test = X.iloc[trainval_idx], X.iloc[test_idx]
@@ -61,23 +71,16 @@ def split_data_gb(X, y, groups):
         n_estimators=200,
         learning_rate=0.05,
         max_depth=3,
+        min_samples_leaf=20,
         subsample=.5,
-        random_state=111,
+        random_state=SEED,
     )
     print(clf)
+
     clf.fit(X_trainval, y_trainval)
-
-    test_pred = clf.predict(X_test)
     test_proba = clf.predict_proba(X_test)[:, 1]
-    print("Log loss:", log_loss(y_test, test_proba))
-    print("Accuracy:", accuracy_score(y_test, test_pred))
-    print("ROC_AUC:", roc_auc_score(y_test, test_proba))
-    # print(classification_report(y_test, test_pred))
+    reporting(test_proba, y_test)
 
-    from sklearn.metrics import RocCurveDisplay
-    from matplotlib import pyplot as plt
-    RocCurveDisplay.from_predictions(y_test, test_proba)
-    plt.show()
 
     return clf
 
@@ -86,6 +89,7 @@ def split_data_gb(X, y, groups):
 X,y,groups = init()
 split_data(X,y,groups)
 split_data_gb(X,y,groups)
+
 # Log loss explanation :
 # >0.693	No better than guessing 50/50
 # 0.5–0.65	Weak but real signal

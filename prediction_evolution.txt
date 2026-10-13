@@ -59,3 +59,24 @@ GradientBoostingClassifier(learning_rate=0.05, n_estimators=200,
 Log loss: 0.5433785656639105
 Accuracy: 0.706408345752608
 ROC_AUC: 0.7935913218790701
+
+
+#########################################################################################################
+#########################################################################################################
+Edit: Changed seed, tweaked hyperparameters (max_depth, min_samples_leaf), added 'difference' columns instead of raw values
+Dataset: All Spirit matches in the 2026 Cologne Major
+Featured Columns:  ['K_steamid', 'V_steamid', 'A_CT', 'B_CT', 'A_velocity', 'B_velocity', 'A_sees_B', 'B_sees_A', 'distance', 'diff_health', 'diff_armor_value', 'diff_current_equip_value', 'diff_Z']
+train: 1477  test: 876
+RandomForestClassifier(class_weight='balanced', max_depth=6,
+                       min_samples_split=5, n_estimators=500, n_jobs=-1,
+                       random_state=1111)
+Log loss: 0.5308435965566415
+Accuracy: 0.7454337899543378
+ROC_AUC: 0.8304524603836531
+
+train: 1477   test: 876
+GradientBoostingClassifier(learning_rate=0.05, min_samples_leaf=20,
+                           n_estimators=200, random_state=1111, subsample=0.5)
+Log loss: 0.5104098752964659
+Accuracy: 0.7408675799086758
+ROC_AUC: 0.8275281484570476

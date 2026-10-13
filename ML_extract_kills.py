@@ -73,7 +73,8 @@ def get_first_damage_ticks():
             kills_df["match_name"] = match_name
             extract_kills_df = pd.concat([extract_kills_df, kills_df], ignore_index=True)
 
-        return extract_kills_df
+        extract_kills_df.to_csv("data/ml_kills_data.csv")
+        print("ml_kills_data.csv Done")
     else:
         return FileNotFoundError
 
@@ -113,6 +114,8 @@ def parse_sample_ticks(sample_ticks):
         ticks_df_minus_1 = parser.parse_ticks(["X","Y","Z"],ticks=wanted_ticks_minus_1)
         ticks_df["match_name"] = match_name
         ticks_df_minus_1["match_name"] = match_name
+        # Parsed ticks twice, it could be optimal to create a parquet file for each
+        # and try to use if available instead of parsing everytime
         #ticks_df.to_parquet(f"parsed/{match_name}/sample_ticks.parquet")
         wanted_df = pd.concat([wanted_df,ticks_df], ignore_index=True)
         wanted_df_minus_1 = pd.concat([wanted_df_minus_1,ticks_df_minus_1], ignore_index=True)
@@ -167,8 +170,6 @@ def get_velocity(dataset,nb_of_ticks=1):
 '''Create a csv file extracting kills to use in a prediction with the wanted columns. '''
 def set_data():
     data = get_first_damage_ticks()
-    data.to_csv("data/ml_kills_data.csv")
-    print("ml_kills_data.csv Done")
     parse_sample_ticks(data[["sample_tick","match_name"]])
     # Need to create a match_id instead of match_name to use in a larger dataset and not have duplicates
 
@@ -242,10 +243,22 @@ def adjust_dataset():
         dataset["A_Z"] - dataset["B_Z"],
     ])
     dataset["distance"] = np.linalg.norm(diff, axis=0).round(1)
-    dataset = dataset[dataset["distance"] != 0.]
+    print("0 distance kills",dataset[dataset["distance"] == 0.])
+    dataset = dataset[dataset["distance"] != 0.] # Removes self kills
+
+    # Create difference columns
+    diff_cols = ["health", "armor_value", "current_equip_value", "Z"]
+    for d in diff_cols:
+        a_col, b_col = f"A_{d}", f"B_{d}"
+        if a_col in dataset.columns and b_col in dataset.columns:
+            dataset[f"diff_{d}"] = dataset[a_col] - dataset[b_col]
+
     print(dataset.columns)
     # Drop columns ruining the prediction
-    dataset.drop(columns=["A_X","A_Y","A_Z","B_X","B_Y","B_Z","A_pitch","A_yaw","B_pitch","B_yaw","Unnamed: 0"], inplace=True)
+    for d in diff_cols:
+        a_col, b_col = f"A_{d}", f"B_{d}"
+        dataset.drop(columns=[a_col, b_col], inplace=True)
+    dataset.drop(columns=["A_X","A_Y","B_X","B_Y","A_pitch","A_yaw","B_pitch","B_yaw","Unnamed: 0"], inplace=True)
     dataset.to_csv("data/adjusted_prediction_dataset.csv")
     print("prediction_dataset.csv Adjusted")
 
